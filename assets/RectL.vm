@@ -1,0 +1,10 @@
+push local 10
+push local 7
+add
+push constant -10
+pop static 5
+push argument 10
+gt
+push constant 5
+push constant -5
+eq
