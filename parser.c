@@ -15,7 +15,7 @@ typedef enum {
     C_ARITHMETIC,
     C_PUSH,
     C_POP,
-    C_LABLE,
+    C_LABEL,
     C_GOTO,
     C_IF,
     C_FUNCTION,
@@ -33,6 +33,7 @@ typedef struct Parser{
 
 typedef struct Statement{
     char* command;
+    size_t line_number;
     CommandType c_type;
     char* operation;
     char* operand_1;
@@ -48,7 +49,12 @@ static char* next_token(char** str);
 static TokenSymbolTable* init_segments_symbol_table(void);
 static TokenSymbolTable* init_ctype_symbol_table(void);
 static int parse_int(const char *s, int *out);
-
+static int parse_push_pop_statement(TokenSymbolTable* segments_table , Statement* stm, char* cmd);
+static int parse_function_declaration_statement(TokenSymbolTable* segments_table , Statement* stm, char* cmd);
+static int parse_function_call_statement(Statement* stm, char* cmd);
+static int parse_lable_statement(Statement* stm, char* cmd);
+static int parse_goto_statement(Statement* stm, char* cmd);
+static int parse_if_statment(Statement* stm, char* cmd);
 
 Parser* init_parser(FILE* file)
 {   
@@ -95,7 +101,8 @@ char* current_command(Parser* parser)
 
 Statement* next_statement(Parser* parser)
 {   
-    if (reader_advance(parser->reader) == EOF) {
+    if (reader_advance(parser->reader) == EOF) 
+    {
         return NULL;
     }
 
@@ -103,73 +110,67 @@ Statement* next_statement(Parser* parser)
     char* cmd = parser->command;
 
     char* token;
-    int line_number = reader_current_line_number(parser->reader);
+    size_t line_number = reader_current_line_number(parser->reader);
 
-    Statement* expr = (Statement*) malloc(sizeof(Statement));
-    if (!expr) {
+    Statement* stm = (Statement*) malloc(sizeof(Statement));
+    if (!stm) {
         return NULL;
     }
 
-    expr->command = cmd;
+    stm->line_number = line_number;
+    stm->command = parser->command;
 
     if ((token = next_token(&cmd)) != NULL)
     {   
         void* ctype;
 
-        if (!token_symbol_table_get(parser->ctype_table, token, &ctype)) {
-            fprintf(stderr, "line:%d invalid operation type:%s", line_number,token);
-            free(token);
-            free(expr);
+       token_symbol_table_get(parser->ctype_table, token, &ctype);
 
-            return NULL;
-        }
-
-        expr->c_type = *(CommandType*)ctype;
-        expr->operation = token;
+        stm->c_type = *(CommandType*)ctype;
+        stm->operation = token;
     }
 
-    if ((token = next_token(&cmd)) != NULL)
-    {   
-        void* opr1;
+    int code = 0;
 
-        if (!token_symbol_table_get(parser->segments_table, token, &opr1)) {
-            fprintf(stderr, "line:%d invalid segment: %s", line_number, token);
-            free(token);
-            free(expr);
+    switch (stm->c_type)
+    {
+    case C_POP:
+    case C_PUSH:
+        code = parse_push_pop_statement(parser->segments_table, stm, cmd);
+        break;
+    case C_IF:
+        code = parse_if_statment(stm, cmd);
+        break;
+    case C_GOTO:
+        code = parse_goto_statement(stm, cmd);
+        break;
+    case C_LABEL:
+        code = parse_lable_statement(stm, cmd);
+        break;
+    case C_FUNCTION:
+        code = parse_function_declaration_statement(parser->segments_table, stm, cmd);
+        break;
+    case C_CALL:
+        code = parse_function_call_statement(stm, cmd);
+        break;
+    case C_RETURN:
+    case C_ARITHMETIC:
+        break;
+    default:
+        fprintf(stderr, "line:%zu invalid token: %s\n", line_number, token);
 
-            return NULL;
-        }
+        code = 5;
+    }
 
-        expr->operand_1 = (char*)opr1;
+
+    if (code) {
         free(token);
-    }    
+        free(stm);
 
-    if ((token = next_token(&cmd)) != NULL)
-    {   
-        int val;
+        return NULL;
+    }
 
-        if (parse_int(token, &val)) {
-            fprintf(stderr, "line:%d expect numeric token:%s", line_number ,token);
-            free(token);
-            free(expr);
-
-            return NULL;
-        }
-
-        if (expr->operand_1 && strcmp(expr->operand_1, "constant") != 0) {
-            if (val < 0) {
-                fprintf(stderr, "line:%d segment index should be a posivitive number, segment:%s index:%d", line_number, expr->operand_1, val);
-                free(token);
-                free(expr);
-
-                return NULL;
-            }
-        }
-
-        expr->operand_2 = val;
-    } 
-
-    return expr;
+    return stm;
 }
 
 void free_parser(Parser *parser)
@@ -342,8 +343,8 @@ static TokenSymbolTable* init_ctype_symbol_table(void)
     ctype = C_IF;
     token_symbol_table_set(table, token, (void*)(&ctype), sizeof(ctype));
 
-    token = "lable";
-    ctype = C_LABLE;
+    token = "label";
+    ctype = C_LABEL;
     token_symbol_table_set(table, token, (void*)(&ctype), sizeof(ctype));
 
     token = "function";
@@ -361,7 +362,8 @@ static TokenSymbolTable* init_ctype_symbol_table(void)
     return table;
 }
 
-static int parse_int(const char *s, int *out) {
+static int parse_int(const char *s, int *out) 
+{
     char *end = NULL;
     long val;
 
@@ -378,5 +380,176 @@ static int parse_int(const char *s, int *out) {
     if (*end != '\0') return 1;              
 
     *out = (int)val;
+    return 0;
+}
+
+static int parse_push_pop_statement(TokenSymbolTable* segments_table , Statement* stm, char* cmd)
+{   
+    char* token;
+    token = next_token(&cmd);
+
+    if (token == NULL)
+    {
+        fprintf(stderr, "line:%zu expect segment but is empty\n", stm->line_number);
+
+        return 1;
+    }
+
+    void* segment;
+
+    if (!token_symbol_table_get(segments_table, token, &segment)) 
+    {
+        fprintf(stderr, "line:%zu invalid segment: %s\n", stm->line_number, token);
+        free(token);
+
+        return 1;
+    }
+
+    stm->operand_1 = (char*)segment;
+
+    token = next_token(&cmd);
+    if (token == NULL)
+    {
+        fprintf(stderr, "line:%zu expect segmentValue but is empty\n", stm->line_number);
+
+        return 1;
+    }
+
+    if (parse_int(token, &stm->operand_2)) 
+    {
+        fprintf(stderr, "line:%zu expect numeric token:%s", stm->line_number ,token);
+        free(token);
+
+        return 1;
+    }
+
+    if (stm->operand_1 && strcmp(stm->operand_1, "constant") != 0) 
+    {
+        if (stm->operand_2 < 0) 
+        {
+            fprintf(stderr, "line:%zu segment index should be a posivitive number, segment:%s value:%d", stm->line_number, stm->operand_1, stm->operand_2);
+            free(token);
+
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int parse_function_declaration_statement(TokenSymbolTable* segments_table , Statement* stm, char* cmd)
+{
+    char* token;
+    token = next_token(&cmd);
+
+    if (token == NULL)
+    {
+        fprintf(stderr, "line:%zu expect functionName but is empty\n", stm->line_number);
+
+        return 1;
+    }
+
+    stm->operand_1 = (char*)token;
+
+    token = next_token(&cmd);
+    if (token == NULL)
+    {
+        fprintf(stderr, "line:%zu expect functionArgs but is empty\n", stm->line_number);
+        
+        return 1;
+    }
+    
+    if (parse_int(token, &stm->operand_2)) 
+    {
+        fprintf(stderr, "line:%zu function argsNumber should be numeric, token:%s\n", stm->line_number ,token);
+        free(token);
+
+        return 1;
+    }
+
+    return 0;
+}
+
+static int parse_function_call_statement(Statement* stm, char* cmd)
+{
+    char* token;
+    token = next_token(&cmd);
+
+    if (token == NULL)
+    {
+        fprintf(stderr, "line:%zu expect functionName but is empty\n", stm->line_number);
+
+        return 1;
+    }
+
+    stm->operand_1 = (char*)token;
+
+    token = next_token(&cmd);
+    if (token == NULL)
+    {
+        fprintf(stderr, "line:%zu expect functionArgs but is empty\n", stm->line_number);
+
+        return 1;
+    }
+    
+    if (parse_int(token, &stm->operand_2)) 
+    {
+        fprintf(stderr, "line:%zu function argsNumber should be numeric, token:%s\n", stm->line_number ,token);
+        free(token);
+
+        return 1;
+    }
+
+    return 0;
+}
+
+static int parse_lable_statement(Statement* stm, char* cmd)
+{
+    char* token;
+    token = next_token(&cmd);
+
+    if (token == NULL)
+    {
+        fprintf(stderr, "line:%zu expect labelName but is empty\n", stm->line_number);
+
+        return 1;
+    }
+
+    stm->operand_1 = (char*)token;
+
+    return 0;
+}
+
+static int parse_goto_statement(Statement* stm, char* cmd)
+{
+    char* token;
+    token = next_token(&cmd);
+
+    if (token == NULL)
+    {
+        fprintf(stderr, "line:%zu expect labelName but is empty\n", stm->line_number);
+
+        return 1;
+    }
+
+    stm->operand_1 = (char*)token;
+
+    return 0;
+}
+
+static int parse_if_statment(Statement* stm, char* cmd)
+{
+    char* token;
+    token = next_token(&cmd);
+
+    if (token == NULL)
+    {
+        fprintf(stderr, "line:%zu expect labelName but is empty\n", stm->line_number);
+
+        return 1;
+    }
+
+    stm->operand_1 = (char*)token;
+
     return 0;
 }

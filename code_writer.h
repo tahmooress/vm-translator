@@ -13,5 +13,7 @@ typedef enum {
 typedef struct CodeWriter CodeWriter;
 
 CodeWriter* init_code_writer(FILE * out, const char* filename,Flags flags);
-size_t write_halt(FILE* out);
-int write_code(CodeWriter* code_writer ,Statement* stm);
+void write_halt(FILE* out);
+void segment_initializer(CodeWriter* code_writer);
+int write_code(CodeWriter* code_writer, Statement* stm);
+void free_code_writer(CodeWriter* code_writer);

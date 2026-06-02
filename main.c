@@ -86,12 +86,22 @@ int main(int argc, char *argv[])
     }
 
     CodeWriter* codeWriter = init_code_writer(output, output_file_name_without_extention, VM_ANNOTATE|VM_DEBUG);
-    Statement* expr;
+    Statement* stm;
 
-    while((expr = next_expression(parser)) != NULL) {
-        write_code(codeWriter, expr);
+    int err;
 
-        free_expresion(expr);
+    while((stm = next_statement(parser)) != NULL) {
+        err = write_code(codeWriter, stm);
+        if (err) {
+            free_code_writer(codeWriter);
+            fclose(output);
+            fclose(input);
+            free(output_file_name_without_extention);
+            free(output_file_name);
+            free_parser(parser);
+            free_statement(stm);
+            exit(1);
+        }
     }
     
     write_halt(output);
