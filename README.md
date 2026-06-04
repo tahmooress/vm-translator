@@ -74,14 +74,15 @@ Supported segments:
 
 The project is split into modular components:<br>
 
-src/<br>
-│
-├── main.c # Entry point<br>
-├── parser.c # Parses VM commands<br>
-├── code.c # Translates VM → Hack assembly<br>
-├── table.c # Symbol / static mapping<br>
-├── writer.c # Writes assembly output<br>
-└── utils.c # Helper functions<br>
+```text
+src/
+├── main.c      # Entry point
+├── parser.c    # Parses VM commands
+├── code.c      # Translates VM → Hack assembly
+├── table.c     # Symbol / static mapping
+├── writer.c    # Writes assembly output
+└── utils.c     # Helper functions
+```
 ---
 
 ## 🔧 Build Instructions
